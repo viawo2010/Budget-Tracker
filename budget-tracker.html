@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Budget Tracker</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --card: #1a1d29;
+    --accent: #6c8cff;
+    --income: #3ddc97;
+    --expense: #ff6b6b;
+    --text: #e6e6e6;
+    --muted: #9aa0b4;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 24px;
+  }
+  .container { max-width: 900px; margin: 0 auto; }
+  h1 { text-align: center; font-weight: 600; margin-bottom: 4px; }
+  .subtitle { text-align: center; color: var(--muted); margin-bottom: 32px; }
+
+  .summary {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  .summary-card {
+    background: var(--card);
+    border-radius: 12px;
+    padding: 18px;
+    text-align: center;
+  }
+  .summary-card .label { color: var(--muted); font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .summary-card .value { font-size: 26px; font-weight: 700; margin-top: 6px; }
+  .balance-pos { color: var(--income); }
+  .balance-neg { color: var(--expense); }
+
+  .card {
+    background: var(--card);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  .card h2 { margin-top: 0; font-size: 16px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+
+  form { display: flex; flex-wrap: wrap; gap: 10px; }
+  input, select {
+    background: #12141c;
+    border: 1px solid #2a2e3d;
+    color: var(--text);
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-size: 14px;
+  }
+  input[type="text"], input[type="number"] { flex: 1; min-width: 120px; }
+  button {
+    background: var(--accent);
+    border: none;
+    color: white;
+    padding: 10px 18px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 14px;
+  }
+  button:hover { opacity: 0.9; }
+
+  ul.tx-list { list-style: none; padding: 0; margin: 0; max-height: 300px; overflow-y: auto; }
+  ul.tx-list li {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid #262a38;
+  }
+  ul.tx-list li:last-child { border-bottom: none; }
+  .tx-info .tx-desc { font-weight: 600; }
+  .tx-info .tx-cat { color: var(--muted); font-size: 12px; }
+  .tx-amount.income { color: var(--income); font-weight: 700; }
+  .tx-amount.expense { color: var(--expense); font-weight: 700; }
+  .delete-btn {
+    background: transparent;
+    color: var(--muted);
+    padding: 4px 8px;
+    font-size: 12px;
+    margin-left: 10px;
+  }
+  .delete-btn:hover { color: var(--expense); }
+
+  .empty { color: var(--muted); text-align: center; padding: 20px 0; }
+
+  canvas { max-width: 100%; }
+  .chart-row { display: flex; gap: 24px; align-items: center; flex-wrap: wrap; }
+  .legend { display: flex; flex-direction: column; gap: 8px; }
+  .legend-item { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  .legend-swatch { width: 12px; height: 12px; border-radius: 3px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>💰 Budget Tracker</h1>
+  <p class="subtitle">Track income, expenses, and where your money goes</p>
+
+  <div class="summary">
+    <div class="summary-card">
+      <div class="label">Income</div>
+      <div class="value balance-pos" id="totalIncome">$0.00</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">Expenses</div>
+      <div class="value balance-neg" id="totalExpense">$0.00</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">Balance</div>
+      <div class="value" id="totalBalance">$0.00</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Add Transaction</h2>
+    <form id="txForm">
+      <input type="text" id="desc" placeholder="Description (e.g. Groceries)" required>
+      <input type="number" id="amount" placeholder="Amount" step="0.01" required>
+      <select id="type">
+        <option value="expense">Expense</option>
+        <option value="income">Income</option>
+      </select>
+      <select id="category">
+        <option>Food</option>
+        <option>Rent</option>
+        <option>Transport</option>
+        <option>Entertainment</option>
+        <option>Utilities</option>
+        <option>Salary</option>
+        <option>Other</option>
+      </select>
+      <button type="submit">Add</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Transactions</h2>
+    <ul class="tx-list" id="txList"></ul>
+    <p class="empty" id="emptyMsg">No transactions yet — add one above.</p>
+  </div>
+
+  <div class="card">
+    <h2>Spending by Category</h2>
+    <div class="chart-row">
+      <canvas id="chart" width="220" height="220"></canvas>
+      <div class="legend" id="legend"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const STORAGE_KEY = 'budgetTrackerTransactions';
+  let transactions = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+
+  const form = document.getElementById('txForm');
+  const txList = document.getElementById('txList');
+  const emptyMsg = document.getElementById('emptyMsg');
+  const totalIncomeEl = document.getElementById('totalIncome');
+  const totalExpenseEl = document.getElementById('totalExpense');
+  const totalBalanceEl = document.getElementById('totalBalance');
+  const canvas = document.getElementById('chart');
+  const ctx = canvas.getContext('2d');
+  const legendEl = document.getElementById('legend');
+
+  const CATEGORY_COLORS = {
+    Food: '#ff6b6b',
+    Rent: '#ffa94d',
+    Transport: '#ffd43b',
+    Entertainment: '#69db7c',
+    Utilities: '#4dabf7',
+    Salary: '#3ddc97',
+    Other: '#9775fa'
+  };
+
+  function saveTransactions() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(transactions));
+  }
+
+  function formatMoney(n) {
+    return '$' + n.toFixed(2);
+  }
+
+  function renderSummary() {
+    const income = transactions.filter(t => t.type === 'income').reduce((sum, t) => sum + t.amount, 0);
+    const expense = transactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0);
+    const balance = income - expense;
+
+    totalIncomeEl.textContent = formatMoney(income);
+    totalExpenseEl.textContent = formatMoney(expense);
+    totalBalanceEl.textContent = formatMoney(balance);
+    totalBalanceEl.className = 'value ' + (balance >= 0 ? 'balance-pos' : 'balance-neg');
+  }
+
+  function renderList() {
+    txList.innerHTML = '';
+    if (transactions.length === 0) {
+      emptyMsg.style.display = 'block';
+      return;
+    }
+    emptyMsg.style.display = 'none';
+
+    [...transactions].reverse().forEach(t => {
+      const li = document.createElement('li');
+      li.innerHTML = `
+        <div class="tx-info">
+          <div class="tx-desc">${escapeHtml(t.desc)}</div>
+          <div class="tx-cat">${t.category}</div>
+        </div>
+        <div style="display:flex; align-items:center;">
+          <div class="tx-amount ${t.type}">${t.type === 'income' ? '+' : '-'}${formatMoney(t.amount)}</div>
+          <button class="delete-btn" data-id="${t.id}">✕</button>
+        </div>
+      `;
+      txList.appendChild(li);
+    });
+
+    document.querySelectorAll('.delete-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = Number(btn.getAttribute('data-id'));
+        transactions = transactions.filter(t => t.id !== id);
+        saveTransactions();
+        renderAll();
+      });
+    });
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  function renderChart() {
+    const expenseByCategory = {};
+    transactions.filter(t => t.type === 'expense').forEach(t => {
+      expenseByCategory[t.category] = (expenseByCategory[t.category] || 0) + t.amount;
+    });
+
+    const categories = Object.keys(expenseByCategory);
+    const total = Object.values(expenseByCategory).reduce((a, b) => a + b, 0);
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    legendEl.innerHTML = '';
+
+    if (total === 0) {
+      ctx.fillStyle = '#2a2e3d';
+      ctx.beginPath();
+      ctx.arc(110, 110, 90, 0, Math.PI * 2);
+      ctx.fill();
+      legendEl.innerHTML = '<div class="legend-item" style="color:#9aa0b4;">No expenses yet</div>';
+      return;
+    }
+
+    let startAngle = -Math.PI / 2;
+    categories.forEach(cat => {
+      const value = expenseByCategory[cat];
+      const sliceAngle = (value / total) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.moveTo(110, 110);
+      ctx.arc(110, 110, 90, startAngle, startAngle + sliceAngle);
+      ctx.closePath();
+      ctx.fillStyle = CATEGORY_COLORS[cat] || '#9775fa';
+      ctx.fill();
+      startAngle += sliceAngle;
+
+      const pct = ((value / total) * 100).toFixed(1);
+      const item = document.createElement('div');
+      item.className = 'legend-item';
+      item.innerHTML = `<span class="legend-swatch" style="background:${CATEGORY_COLORS[cat] || '#9775fa'}"></span> ${cat} — ${formatMoney(value)} (${pct}%)`;
+      legendEl.appendChild(item);
+    });
+  }
+
+  function renderAll() {
+    renderSummary();
+    renderList();
+    renderChart();
+  }
+
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const desc = document.getElementById('desc').value.trim();
+    const amount = parseFloat(document.getElementById('amount').value);
+    const type = document.getElementById('type').value;
+    const category = document.getElementById('category').value;
+
+    if (!desc || isNaN(amount) || amount <= 0) return;
+
+    transactions.push({
+      id: Date.now(),
+      desc,
+      amount,
+      type,
+      category
+    });
+
+    saveTransactions();
+    renderAll();
+    form.reset();
+    document.getElementById('desc').focus();
+  });
+
+  renderAll();
+</script>
+</body>
+</html>
